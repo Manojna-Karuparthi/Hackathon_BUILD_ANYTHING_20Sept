@@ -54,22 +54,40 @@ if (window.speechSynthesis) {
   speechSynthesis.onvoiceschanged = loadVoices;
 }
 
-/** Speak the alert. Slowed and pitched for intelligibility over a PA system. */
-export function speak(text, { rate = 0.88, repeat = 1 } = {}) {
-  if (!window.speechSynthesis || !text) return;
+/** Speak the alert in a given language.
+
+    `lang` is a BCP-47 tag from the server (hi-IN, ne-NP, ta-IN, ...). If the
+    device has no voice for it we fall back to the base language, then to
+    English, and report which one was actually used - a dialect silently read
+    out in the wrong language is worse than an obvious fallback. */
+export function speak(text, { rate = 0.88, repeat = 1, lang = "en-IN" } = {}) {
+  if (!window.speechSynthesis || !text) return null;
   speechSynthesis.cancel();
+  if (!voices.length) loadVoices();
+
+  const base = lang.split("-")[0];
+  const chosen =
+    voices.find((v) => v.lang.replace("_", "-").toLowerCase() === lang.toLowerCase()) ||
+    voices.find((v) => v.lang.toLowerCase().startsWith(base.toLowerCase())) ||
+    voices.find((v) => /^en/i.test(v.lang)) ||
+    null;
+
   for (let i = 0; i < repeat; i++) {
     const u = new SpeechSynthesisUtterance(text);
     u.rate = rate;
     u.pitch = 1.0;
     u.volume = 1.0;
-    const preferred =
-      voices.find((v) => /en-IN|en_IN/i.test(v.lang)) ||
-      voices.find((v) => /en-GB/i.test(v.lang)) ||
-      voices.find((v) => /^en/i.test(v.lang));
-    if (preferred) u.voice = preferred;
+    u.lang = lang;
+    if (chosen) u.voice = chosen;
     speechSynthesis.speak(u);
   }
+  return chosen ? chosen.lang : null;
+}
+
+/** Which of the requested languages this device can actually voice. */
+export function availableVoiceLangs() {
+  if (!voices.length) loadVoices();
+  return new Set(voices.map((v) => v.lang.replace("_", "-").toLowerCase()));
 }
 
 export const stopSpeech = () => window.speechSynthesis && speechSynthesis.cancel();

@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS alerts (
     body TEXT NOT NULL,
     spoken TEXT NOT NULL,
     cascade_eta_s REAL,
+    trigger TEXT NOT NULL DEFAULT 'conditions',
+    probability REAL,
+    language TEXT NOT NULL DEFAULT 'en',
+    translations TEXT NOT NULL DEFAULT '{}',
     dispatched TEXT NOT NULL DEFAULT '[]',
     simulated INTEGER NOT NULL DEFAULT 0,
     scenario TEXT NOT NULL DEFAULT 'live',
@@ -59,9 +63,23 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the first release. Applied idempotently so an existing
+# prahari.db keeps working instead of needing to be deleted.
+MIGRATIONS = [
+    ("alerts", "trigger", "TEXT NOT NULL DEFAULT 'conditions'"),
+    ("alerts", "probability", "REAL"),
+    ("alerts", "language", "TEXT NOT NULL DEFAULT 'en'"),
+    ("alerts", "translations", "TEXT NOT NULL DEFAULT '{}'"),
+]
+
+
 def init_db() -> None:
     with _lock, _connect() as conn:
         conn.executescript(SCHEMA)
+        for table, column, decl in MIGRATIONS:
+            existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def record_alert(
@@ -70,13 +88,16 @@ def record_alert(
     with _lock, _connect() as conn:
         cur = conn.execute(
             """INSERT INTO alerts (zone_id, zone_name, level, previous_level, score,
-                    channel, headline, body, spoken, cascade_eta_s, dispatched,
+                    channel, headline, body, spoken, cascade_eta_s, trigger,
+                    probability, language, translations, dispatched,
                     simulated, scenario, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 record.zone_id, record.zone_name, record.level, record.previous_level,
                 record.score, record.channel, record.headline, record.body, record.spoken,
-                record.cascade_eta_s, json.dumps(record.dispatched),
+                record.cascade_eta_s, record.trigger, record.probability,
+                record.language, json.dumps(record.translations),
+                json.dumps(record.dispatched),
                 int(record.simulated), scenario, record.created_at,
             ),
         )
@@ -93,6 +114,7 @@ def recent_alerts(limit: int = 50) -> list[dict[str, Any]]:
     for r in rows:
         d = dict(r)
         d["dispatched"] = json.loads(d.get("dispatched") or "[]")
+        d["translations"] = json.loads(d.get("translations") or "{}")
         d["simulated"] = bool(d["simulated"])
         out.append(d)
     return out

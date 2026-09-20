@@ -87,6 +87,14 @@ class Settings:
     # Seismic search radius around a geo-watch zone, kilometres.
     geo_radius_km: float = _env_float("PRAHARI_GEO_RADIUS_KM", 120.0)
 
+    # --- forecasting ------------------------------------------------------
+    # Probability at or above which a forecast raises an alarm on its own,
+    # without waiting for current conditions to cross a threshold. This is the
+    # number that buys evacuation time, so it is deliberately a setting rather
+    # than a constant buried in the engine.
+    alarm_probability: float = _env_float("PRAHARI_ALARM_PROBABILITY", 0.90)
+    forecast_horizon_h: float = _env_float("PRAHARI_FORECAST_HORIZON_H", 24.0)
+
     # --- Hugging Face -----------------------------------------------------
     hf_token: str | None = os.getenv("HF_TOKEN") or os.getenv(
         "HUGGINGFACEHUB_API_TOKEN"
@@ -105,17 +113,9 @@ class Settings:
 
     # --- alert fan-out ----------------------------------------------------
     webhook_url: str | None = os.getenv("PRAHARI_WEBHOOK_URL")
-    twilio_sid: str | None = os.getenv("TWILIO_ACCOUNT_SID")
-    twilio_token: str | None = os.getenv("TWILIO_AUTH_TOKEN")
-    twilio_from: str = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
-    twilio_to: str | None = os.getenv("TWILIO_WHATSAPP_TO")
 
     # --- storage ----------------------------------------------------------
     db_path: Path = Path(os.getenv("PRAHARI_DB", str(ROOT / "prahari.db")))
-
-    @property
-    def twilio_enabled(self) -> bool:
-        return bool(self.twilio_sid and self.twilio_token and self.twilio_to)
 
     def band_for(self, score: float) -> str:
         if score >= self.band_emergency:

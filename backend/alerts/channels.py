@@ -1,11 +1,15 @@
 """Alert delivery channels.
 
-Ordered by how much the demo depends on them, which is the inverse of how
-impressive they sound. The browser siren and speech channel is first because
-it has zero external dependencies and therefore zero chance of failing in
-front of judges. WhatsApp is last because it needs a third-party sandbox and a
-pre-joined number, and anything that needs someone else's uptime does not get
-to be the centrepiece.
+The browser siren and speech channel comes first because it has zero external
+dependencies: no third-party sandbox, no pre-joined number, nothing that can
+fail because someone else's service is down. The spoken text is written for
+relay over a village public-address system, which is how a warning reaches
+people who have no smartphone at all.
+
+Messaging-app delivery was deliberately removed: it required a third-party
+sandbox and a pre-registered number, which made the most visible channel the
+least reliable one. The webhook below is the integration point for any
+external delivery system a deployment already operates.
 
 Every channel returns a label on success and None on failure. A channel that
 fails never blocks the others - a warning that reaches three out of four
@@ -37,28 +41,6 @@ async def dispatch_webhook(client: httpx.AsyncClient, record: AlertRecord) -> st
         return None
 
 
-async def dispatch_whatsapp(client: httpx.AsyncClient, record: AlertRecord) -> str | None:
-    """Twilio WhatsApp sandbox. Optional bonus channel, off unless configured."""
-    if not settings.twilio_enabled:
-        return None
-    body = f"{record.headline}\n\n{record.spoken}"[:1500]
-    try:
-        resp = await client.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_sid}/Messages.json",
-            data={
-                "From": settings.twilio_from,
-                "To": settings.twilio_to,
-                "Body": body,
-            },
-            auth=(settings.twilio_sid or "", settings.twilio_token or ""),
-            timeout=settings.http_timeout_s,
-        )
-        resp.raise_for_status()
-        return "whatsapp"
-    except Exception:  # noqa: BLE001
-        return None
-
-
 async def dispatch_all(
     client: httpx.AsyncClient, record: AlertRecord
 ) -> list[str]:
@@ -67,7 +49,6 @@ async def dispatch_all(
     fail independently of the process itself."""
     results = await asyncio.gather(
         dispatch_webhook(client, record),
-        dispatch_whatsapp(client, record),
         return_exceptions=True,
     )
     delivered = ["browser-siren", "speech-synthesis", "alert-log"]
@@ -88,9 +69,5 @@ def channel_status() -> dict[str, Any]:
         "webhook": {
             "enabled": bool(settings.webhook_url),
             "note": "Generic POST for integration with an existing EOC system.",
-        },
-        "whatsapp": {
-            "enabled": settings.twilio_enabled,
-            "note": "Twilio sandbox. Bonus channel - set TWILIO_* env vars to enable.",
         },
     }

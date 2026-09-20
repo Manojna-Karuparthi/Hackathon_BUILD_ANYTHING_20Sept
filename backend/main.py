@@ -11,15 +11,18 @@ import asyncio
 import contextlib
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import store
+from . import i18n, store
 from .alerts.channels import channel_status
 from .config import FRONTEND_DIR, settings
 from .engine.analogue import load_corpus
+from .engine.assistant import answer as assistant_answer
+from .engine.assistant import hf_payload, starter_questions
+from .hazards import catalogue as hazard_catalogue
 from .engine.hydro import WEIGHTS as HYDRO_WEIGHTS
 from .engine.geo import WEIGHTS as GEO_WEIGHTS
 from .orchestrator import orchestrator, poll_forever
@@ -169,6 +172,114 @@ async def simulate(zone_id: str, level: str = "EMERGENCY") -> Any:
     return record.model_dump(mode="json")
 
 
+# ------------------------------------------------------------- multi-hazard
+@app.get("/api/hazards")
+async def hazards() -> Any:
+    """The hazard taxonomy the map legend and filters are built from."""
+    return {"hazards": hazard_catalogue()}
+
+
+@app.get("/api/global-events")
+async def global_events(hazard: str | None = None, limit: int = 300) -> Any:
+    """Live worldwide hazard events, normalised across NASA EONET, GDACS and USGS."""
+    events = orchestrator.global_events
+    if hazard:
+        wanted = {h.strip() for h in hazard.split(",") if h.strip()}
+        events = [e for e in events if e["hazard"] in wanted]
+    return {
+        "count": len(events),
+        "events": events[:limit],
+        "sources": [orchestrator.eonet.health().model_dump(mode="json"),
+                    orchestrator.gdacs.health().model_dump(mode="json")],
+    }
+
+
+@app.get("/api/forecasts")
+async def forecasts() -> Any:
+    """Every zone forecast, strongest probability first."""
+    if orchestrator.state is None:
+        await orchestrator.tick(advance=False)
+    assert orchestrator.state is not None
+    rows = []
+    for z in orchestrator.state.zones:
+        for f in z.forecasts:
+            rows.append({
+                "zone_id": z.zone_id, "zone": z.name,
+                **f.model_dump(mode="json"),
+            })
+    rows.sort(key=lambda r: -r["probability"])
+    return {
+        "alarm_threshold": settings.alarm_probability,
+        "horizon_hours": settings.forecast_horizon_h,
+        "forecasts": rows,
+    }
+
+
+# ------------------------------------------------------------------ language
+@app.get("/api/languages")
+async def languages() -> Any:
+    return {
+        "languages": i18n.catalogue(),
+        "active": orchestrator.language,
+        "review": i18n.review_status(),
+    }
+
+
+@app.post("/api/language/{code}")
+async def set_language(code: str) -> Any:
+    if not await orchestrator.set_language(code):
+        raise HTTPException(404, f"Unsupported language '{code}'")
+    return {"ok": True, "language": code}
+
+
+# ----------------------------------------------------------------- assistant
+@app.get("/api/assistant/starters")
+async def assistant_starters(lang: str = "en") -> Any:
+    return {"questions": starter_questions(lang)}
+
+
+@app.post("/api/assistant")
+async def assistant(
+    question: str = Body(..., embed=True),
+    lang: str = Body("en", embed=True),
+    zone_id: str | None = Body(None, embed=True),
+    allow_llm: bool = Body(True, embed=True),
+) -> Any:
+    """Answer a question about the current situation, in the chosen language.
+
+    Rules tier answers first and always works offline. The LLM tier only runs
+    for free-form questions, is grounded in the state snapshot, and can never
+    change a risk number.
+    """
+    if orchestrator.state is None:
+        await orchestrator.tick(advance=False)
+    assert orchestrator.state is not None
+    state = orchestrator.state.model_dump(mode="json")
+
+    reply = assistant_answer(state, question, lang, zone_id)
+    result = {
+        "text": reply.text, "speak": reply.speak, "language": reply.language,
+        "intent": reply.intent, "source": reply.source, "zone_id": reply.zone_id,
+        "speech_lang": i18n.get(reply.language).speech_primary,
+        "rtl": i18n.get(reply.language).rtl,
+    }
+
+    # Escalate to the model only when the rules tier had no specific intent and
+    # a token is configured.
+    if allow_llm and reply.intent == "status" and orchestrator.hf.available:
+        zone = next(
+            (z for z in state["zones"] if z["zone_id"] == reply.zone_id), None
+        )
+        payload = hf_payload(state, question, lang, zone)
+        if orchestrator._client is not None:
+            text = await orchestrator.hf.briefing(orchestrator._client, payload)
+            if text:
+                result["text"] = text
+                result["speak"] = text
+                result["source"] = "hf-inference"
+    return result
+
+
 # -------------------------------------------------------------------- health
 @app.get("/api/health")
 async def health() -> Any:
@@ -178,8 +289,15 @@ async def health() -> Any:
         "source_mode": settings.source_mode,
         "active_scenario": orchestrator.cursor.scenario_id,
         "engine_mode": orchestrator.engine_mode,
-        "sources": [s.health().model_dump(mode="json")
-                    for s in (orchestrator.weather, orchestrator.discharge, orchestrator.seismic)],
+        "sources": [
+            s.health().model_dump(mode="json")
+            for s in (
+                orchestrator.weather, orchestrator.discharge, orchestrator.seismic,
+                orchestrator.eonet, orchestrator.gdacs,
+            )
+        ],
+        "languages": i18n.review_status(),
+        "global_events": len(orchestrator.global_events),
         "huggingface": orchestrator.hf.status(),
         "corpus": {"incidents": len(corpus), "provenance": provenance},
         "channels": channel_status(),
@@ -222,6 +340,19 @@ async def methodology() -> Any:
         "bands": {
             "ADVISORY": settings.band_advisory, "WATCH": settings.band_watch,
             "WARNING": settings.band_warning, "EMERGENCY": settings.band_emergency,
+        },
+        "forecast": {
+            "flood": "NWP threshold-exceedance on Open-Meteo (ECMWF/GFS) forecast precipitation",
+            "aftershock": "Reasenberg & Jones (1989) with Omori-Utsu decay; P(at least one) via Poisson",
+            "landslide": "Caine (1980) rainfall intensity-duration threshold I = 14.82 * D^-0.39",
+            "heat": "IMD heatwave temperature criteria vs forecast maximum",
+            "alarm_probability": settings.alarm_probability,
+            "horizon_hours": settings.forecast_horizon_h,
+            "note": (
+                "These forecast a hazard's likelihood, not an earthquake's occurrence. "
+                "Aftershock probability is conditional on a mainshock that has already "
+                "happened - a solved problem. Forecasting a first earthquake is not."
+            ),
         },
         "state_machine": {
             "hysteresis_drop": settings.hysteresis_drop,

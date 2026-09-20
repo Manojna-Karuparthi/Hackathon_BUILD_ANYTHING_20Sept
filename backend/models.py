@@ -58,6 +58,43 @@ class Analogue(BaseModel):
     lesson: str
 
 
+class ForecastOut(BaseModel):
+    """A probabilistic prediction with the method that produced it.
+
+    `method` is mandatory and always shown: a probability without a named
+    method is a number to be distrusted.
+    """
+
+    hazard: str
+    horizon_hours: float
+    probability: float
+    percent: int
+    band: Literal["LOW", "ELEVATED", "HIGH", "VERY_HIGH", "IMMINENT"]
+    method: str
+    basis: str
+    actionable: bool
+    expected_value: float | None = None
+    expected_unit: str = ""
+
+
+class GlobalEvent(BaseModel):
+    """A hazard event anywhere in the world, normalised across feeds."""
+
+    id: str
+    source: str
+    hazard: str
+    title: str
+    lat: float
+    lon: float
+    time: str
+    severity: float | None = None
+    alert_level: str | None = None
+    magnitude: float | None = None
+    magnitude_unit: str = ""
+    url: str = ""
+    description: str = ""
+
+
 class ZoneRisk(BaseModel):
     zone_id: str
     name: str
@@ -85,6 +122,13 @@ class ZoneRisk(BaseModel):
     fusion_note: str = ""
     cascade: CascadeAlert | None = None
     analogues: list[Analogue] = []
+    forecasts: list[ForecastOut] = []
+    top_probability: float = Field(
+        0.0, description="Highest forecast probability across all hazards for this zone"
+    )
+    forecast_alarm: bool = Field(
+        False, description="A forecast crossed the auto-alarm probability threshold"
+    )
     explanation: str = ""
     explanation_source: Literal["rules", "hf-inference"] = "rules"
     updated_at: str
@@ -102,6 +146,10 @@ class AlertRecord(BaseModel):
     body: str
     spoken: str
     cascade_eta_s: float | None = None
+    trigger: Literal["conditions", "forecast", "drill"] = "conditions"
+    probability: float | None = None
+    language: str = "en"
+    translations: dict[str, str] = {}
     created_at: str
     dispatched: list[str] = []
     simulated: bool = False
@@ -130,6 +178,9 @@ class SystemState(BaseModel):
     population_at_risk: int
     blindspot_zones: list[str] = []
     seismic_events: list[dict[str, Any]] = []
+    global_events: list[GlobalEvent] = []
+    hazard_counts: dict[str, int] = {}
+    forecast_alarm_zones: list[str] = []
     hf: dict[str, Any] = {}
 
 

@@ -166,6 +166,110 @@ policy rather than by measurement must never look like a measurement.
 
 ---
 
+## 4b. Forecasting — the prediction layer
+
+Four forecasters. Each is a **published method with a citation**, not a model fitted to ten
+incidents. Every probability the UI shows carries its method name and its arithmetic.
+
+### Flood — NWP threshold exceedance
+
+Open-Meteo serves ECMWF/GFS forecast precipitation: a real forecast produced by real
+atmospheric models. We project the rolling 24-hour accumulation forward and rescore it
+through the same Channel A curve:
+
+```
+projected   = forecast_rain + 0.55 × current_24h     (carry-over discounted:
+                                                      the window rolls forward too)
+ratio       = projected / zone_threshold
+proj_score  = 100 × (1 − exp(−1.6094 × ratio)) × exposure
+margin      = proj_score − band_warning
+spread      = 6 + 0.28 × horizon_hours
+P           = 1 / (1 + exp(−margin / spread))
+```
+
+`proj_score` is deliberately **not** clamped to 100 before the margin is taken: an extreme
+forecast must keep pushing the probability up rather than flattening out the moment the
+score would cap. `spread` widens with lead time because NWP precipitation skill decays —
+so the same 200 mm forecast reads 99.5% at 6 h and 88.6% at 48 h.
+
+### Aftershock — Reasenberg & Jones (1989) with Omori-Utsu decay
+
+The method USGS uses operationally. Rate of aftershocks at or above magnitude `M` after a
+mainshock `Mm`:
+
+```
+λ(t) = 10^(a + b(Mm − M)) · (t + c)^(−p)          events per day
+N    = ∫ λ(t) dt  over the forecast window
+P    = 1 − exp(−N)                                 Poisson, P(at least one)
+```
+
+Generic parameters `a = −1.67, b = 0.91, p = 1.08, c = 0.05`. A real deployment calibrates
+these per tectonic region.
+
+Sanity-checked against published behaviour: an M6.0 gives ~45% for M≥5.0 within 24 h and
+~99% for M≥4.0, consistent with Bath's law putting the largest aftershock near M4.8.
+Monotonic in both magnitude and window length. All of this is pinned in `test_forecast.py`.
+
+**This is not earthquake prediction.** It is conditional aftershock probability given an
+earthquake that has already occurred — a solved problem. Forecasting a first earthquake
+is not, and this system does not claim to.
+
+### Landslide — Caine (1980) intensity-duration threshold
+
+The canonical empirical triggering relation:
+
+```
+I_threshold = 14.82 × D^(−0.39)                    mm/h, D in hours
+ratio       = forecast_intensity / I_threshold
+effective   = ratio × (1 + 0.45 × antecedent_wetness) × slope_gain
+P           = logistic((effective − 1) × 100, 26)
+```
+
+Produced **only for steep terrain**. A landslide forecast for the Brahmaputra floodplain
+would be noise, so flat zones get no forecast rather than a fabricated low number.
+
+### Extreme heat — IMD criteria
+
+Heat is included because it kills more people annually across South Asia than floods and is
+the least alarmed-on hazard there. Forecast maximum against the IMD heatwave threshold
+(40 °C in the plains, 32 °C above 1000 m), through a logistic with a 2.4 °C spread.
+
+### The auto-alarm
+
+At or above `PRAHARI_ALARM_PROBABILITY` (default **0.90**) a forecast raises an alarm **on
+its own**, without waiting for current conditions to cross a threshold. Waiting for the
+threshold means warning people while the water is already arriving.
+
+Forecast alarms are rate-limited per zone by the same cooldown as condition alarms, so a
+sustained high-probability outlook does not re-alarm every tick.
+
+### Where forecasting is refused
+
+A confirmed ice-rock avalanche already in motion has no meaningful probability — it is
+happening. Rendering it as a 2% flood forecast alongside real probabilities would be
+actively misleading, so it is shown as a **DETECTED** card with an arrival countdown and an
+explicit statement that this hazard class cannot be forecast, only detected. That refusal is
+part of the method, not a gap in it.
+
+---
+
+## 4c. Multi-hazard taxonomy and global feeds
+
+Nine categories — earthquake, landslide, GLOF, volcano, flood, cyclone, wildfire, extreme
+heat, drought — plus `other`. Three feeds are normalised into one event stream:
+
+| Feed | Coverage | Severity | Key |
+|---|---|---|---|
+| NASA EONET v3 | curated worldwide natural events | none | none |
+| GDACS | fewer events, official alert levels | Green/Orange/Red → 30/65/90 | none |
+| USGS FDSN | global earthquake catalogue | magnitude → 0–100 | none |
+
+De-duplicated on `(hazard, lat≈0.1°, lon≈0.1°)` because GDACS and USGS both carry the large
+earthquakes. Events older than 30 days are dropped; events with an unparseable timestamp are
+**kept**, because losing a hazard over an odd date field is the wrong failure direction.
+
+---
+
 ## 5. Cascade timing
 
 ```
@@ -258,7 +362,20 @@ project is about.
 9. **The scenario replays are authored frames**, not simulated physics. The arrival times
    come from the real reach graph; the rainfall and seismic values were written by hand to
    reproduce the documented event shape.
-10. **No validation against a historical event catalogue.** We have not measured a hit rate
+10. **Forecast parameters are generic, not regionally calibrated.** The Reasenberg-Jones
+    values are the generic California sequence parameters; the Caine threshold is a global
+    empirical fit. Both should be recalibrated on regional catalogues before operational use.
+11. **Global feed severity is not comparable across hazards.** A GDACS "Red" cyclone and an
+    M6 earthquake both map onto a 0-100 severity, but those numbers mean different things.
+    The world map uses them for ranking and display only — never as an input to the zone
+    risk engine.
+12. **The translations are machine-assisted and unreviewed.** Every language is validated
+    for placeholder integrity, so no alert can silently lose its `{eta}` or `{percent}`, and
+    the API reports `UNREVIEWED_MACHINE_ASSISTED`. But structural validity is not fluency:
+    **a life-safety message must be read by a fluent speaker of each variety before
+    deployment.** The two dialects (Bhojpuri, Maithili) additionally have no TTS voice of
+    their own and fall back to a related voice, which is declared rather than hidden.
+13. **No validation against a historical event catalogue.** We have not measured a hit rate
     or a false-alarm rate, because doing that honestly needs a labelled multi-year archive
     and instrument records we do not have. **This is the single most important piece of
     missing work**, and no deployment decision should be made without it.

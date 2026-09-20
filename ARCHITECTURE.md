@@ -214,6 +214,165 @@ water is coming.
 
 ---
 
+## 4b. The prediction layer
+
+Detection answers "what is happening". Prediction answers "what happens next" — and the two
+must never be confused on screen, because they carry different obligations.
+
+```mermaid
+flowchart TB
+  subgraph IN["Inputs"]
+    NWP["Open-Meteo forecast<br/>precipitation + temperature<br/><i>ECMWF / GFS output</i>"]
+    CAT["USGS catalogue<br/><i>mainshock magnitude</i>"]
+    ZON["Zone terrain<br/><i>slope, elevation, thresholds</i>"]
+  end
+
+  subgraph FC["Forecasters — each a published method"]
+    F1["<b>Flood</b><br/>NWP threshold exceedance<br/>spread widens with lead time"]
+    F2["<b>Aftershock</b><br/>Reasenberg-Jones 1989<br/>Omori-Utsu decay, Poisson"]
+    F3["<b>Landslide</b><br/>Caine 1980 intensity-duration<br/><i>steep terrain only</i>"]
+    F4["<b>Heat</b><br/>IMD criteria vs forecast max"]
+  end
+
+  DEC{"probability ≥<br/>alarm threshold<br/>(default 0.90)?"}
+  ALARM["<b>FORECAST ALARM</b><br/>raised without waiting for<br/>conditions to cross a threshold"]
+  SHOW["Probability card<br/>+ method + arithmetic"]
+
+  DET["<b>DETECTED</b> card<br/>arrival countdown, no percentage<br/><i>'cannot be forecast,<br/>only detected'</i>"]
+  CASC["Confirmed cascade<br/>from Channel B"]
+
+  NWP --> F1 & F3 & F4
+  CAT --> F2
+  ZON --> F1 & F3 & F4
+  F1 & F2 & F3 & F4 --> DEC
+  DEC -->|yes| ALARM
+  DEC -->|no| SHOW
+  CASC --> DET
+
+  style ALARM fill:#fde8e8,stroke:#d03b3b,color:#7a1010
+  style DET fill:#fff4e6,stroke:#f07316,color:#7a3a00
+```
+
+Three decisions worth defending:
+
+1. **The alarm threshold is a setting, not a constant.** It is the number that decides when
+   people are told to move, so it belongs in configuration where an operating authority can
+   own it — not buried in engine code.
+
+2. **Forecast alarms fire before conditions do.** A 96% flood probability 24 hours out is
+   more actionable than a threshold crossing measured after the fact. The state machine's
+   cooldown still rate-limits them, so a sustained outlook does not re-alarm every tick.
+
+3. **Refusing to forecast is part of the method.** A glacier collapse in motion has no
+   probability — it is happening. Showing it as "2% flood" next to a real 96% would teach an
+   operator to distrust both numbers. It gets a DETECTED card instead, and the UI states
+   plainly that this hazard class can only be detected, never predicted. Every honest
+   forecasting system needs a way to say "not this one", and most do not have one.
+
+---
+
+## 4c. Multi-hazard world view
+
+```mermaid
+flowchart LR
+  EO["NASA EONET v3<br/>curated worldwide events<br/><i>no severity</i>"]
+  GD["GDACS<br/>official alert levels<br/><i>Green / Orange / Red</i>"]
+  US["USGS FDSN<br/>earthquake catalogue"]
+
+  NORM["Normalisers<br/>→ one event shape"]
+  DEDUP["De-duplicate<br/>(hazard, lat≈0.1°, lon≈0.1°)<br/><i>GDACS and USGS both carry<br/>the big earthquakes</i>"]
+  AGE["Age filter<br/>30 days<br/><i>undated events KEPT</i>"]
+  MAP["World map<br/>9 categories · filter chips<br/>glyph + label + hue"]
+
+  EO & GD & US --> NORM --> DEDUP --> AGE --> MAP
+```
+
+The world feeds are **display and situational awareness only**. They never feed the zone risk
+engine: a GDACS "Red" cyclone and an M6 earthquake both normalise onto 0–100, but those
+numbers do not mean the same thing, and mixing them into a scored risk would be a category
+error. Ranking and rendering is all they are used for.
+
+Polled on a slower cadence than the zone engine — these feeds update in hours, not seconds.
+They fall back to a bundled snapshot (`data/snapshots/`) when unreachable, clearly marked as
+a snapshot, because a world map that silently shows month-old pins as live would be exactly
+the dishonesty this project argues against.
+
+---
+
+## 4d. Language and voice
+
+```mermaid
+flowchart TB
+  ALERT["Alert raised"]
+  TPL["Template lookup<br/>data/i18n/languages.json"]
+  VAL["<b>Placeholder validation</b><br/>every language must carry the<br/>exact placeholder set of English"]
+  ALL["Render ALL 11 languages<br/><i>attached to the alert record</i>"]
+
+  subgraph DELIV["Delivery"]
+    UI["Dashboard<br/>switches instantly, no round trip"]
+    TTS["Speech synthesis<br/>BCP-47 per language"]
+    WH["Webhook<br/>PA / SMS gateway gets every language"]
+  end
+
+  FB["Voice fallback<br/><i>bho, mai → hi-IN</i><br/>declared, never silent"]
+
+  ALERT --> TPL --> VAL --> ALL --> UI & TTS & WH
+  TTS -.no engine for dialect.-> FB
+
+  style VAL fill:#e8f2fd,stroke:#2a78d6,color:#0d366b
+```
+
+**Why templates rather than machine translation at send time.** A life-safety message must
+be deterministic, auditable and available offline. A translation service in the alert path
+is a dependency that fails exactly when the network does.
+
+**Why placeholders are validated at load.** A translation that silently dropped `{eta}`
+would produce a fluent, grammatical sentence missing the only number that matters — and that
+failure is invisible to anyone who does not read the language. So it is asserted, not
+trusted, in both `i18n.py` and `test_i18n.py`.
+
+**Why all languages ship with every alert.** A PA controller in one district and an SMS
+gateway in another need different languages from the same event. Sending all of them costs
+a few kilobytes and removes a round trip from the critical path.
+
+**Honesty about quality.** These strings are machine-assisted and unreviewed. The system
+reports `UNREVIEWED_MACHINE_ASSISTED` through `/api/health` and `/api/languages`, and says so
+in the data file and the README. Structural validity is not fluency, and a warning that
+reads oddly in Maithili is a warning people may not act on.
+
+---
+
+## 4e. The situation assistant
+
+```mermaid
+flowchart TB
+  Q["Question<br/><i>typed or spoken</i>"]
+  SR["SpeechRecognition<br/><i>browser-native, nothing uploaded</i>"]
+  INT["Intent match<br/>status · safety · action · eta ·<br/>why · forecast · hazards<br/><i>keywords in 11 languages<br/>+ romanised forms</i>"]
+  RULES["<b>Tier 1 — rules</b><br/>answers from the SAME translated<br/>safety templates the sirens use<br/><i>offline, no token, every language</i>"]
+  LLM["<b>Tier 2 — HF inference</b><br/>free-form only, grounded in a<br/>state snapshot, forbidden from<br/>inventing numbers"]
+  OUT["Answer + speech<br/><i>read back in the chosen language</i>"]
+
+  Q --> INT
+  SR --> Q
+  INT -->|specific intent| RULES --> OUT
+  INT -->|open-ended AND token set| LLM --> OUT
+  LLM -.unavailable.-> RULES
+
+  style RULES fill:#e6f6ed,stroke:#0a8f0a,color:#064506
+```
+
+The tier order is the whole design. Someone asking *"should I leave"* must not depend on an
+inference API being reachable, so that answer comes from a template that is already on disk.
+The model only handles questions the rules tier has no specific intent for, and it can never
+change a risk number — it reads state out loud, it does not decide.
+
+Romanised keywords ("kya karu", "kab") are in the intent table because people type
+Devanagari-language queries in Latin script constantly, and an assistant that only matches
+native script would fail most real queries.
+
+---
+
 ## 5. Alert state machine
 
 ```mermaid
@@ -291,11 +450,12 @@ into the repo** (404 KB) rather than pulled from a CDN.
 
 | Module | Responsibility |
 |---|---|
-| `api.js` | fetch helpers, WebSocket with exponential-backoff reconnect, level tokens |
-| `map.js` | Leaflet; numbered markers, river network, offline-safe |
+| `api.js` | fetch helpers, WebSocket with backoff reconnect, level + hazard tokens |
+| `map.js` | Leaflet; dual mode — numbered regional zones, categorised world hazards |
 | `charts.js` | Chart.js; fused vs legacy vs both channels, band markers, table view |
-| `siren.js` | Web Audio two-tone sweep + speech synthesis |
-| `app.js` | state → DOM, countdown interpolation, controls |
+| `siren.js` | Web Audio two-tone sweep + multilingual speech synthesis with voice fallback |
+| `assistant.js` | chat panel, SpeechRecognition input, read-aloud output |
+| `app.js` | state → DOM, hero tiles, forecast cards, countdown interpolation, controls |
 
 Three deliberate decisions:
 
@@ -390,6 +550,13 @@ which is why it cannot rot as the UI changes.
 | POST | `/api/playback/{play\|pause\|step\|restart\|seek}` | replay control |
 | POST | `/api/engine/{dual\|legacy}` | switch to the counterfactual engine |
 | POST | `/api/simulate/{zone}` | fire the alert pipeline on demand |
+| GET | `/api/hazards` | the 9-category hazard taxonomy with glyphs |
+| GET | `/api/global-events` | live worldwide events, filterable by category |
+| GET | `/api/forecasts` | every zone forecast with its method and basis |
+| GET | `/api/languages` | supported languages, voice tags, review status |
+| POST | `/api/language/{code}` | set the alert language |
+| GET | `/api/assistant/starters` | suggested questions |
+| POST | `/api/assistant` | ask a question, get a localised answer |
 | WS | `/ws` | push `state` and `alert` frames |
 
 `/api/methodology` exists because "is that hardcoded?" is the first question a technical
@@ -414,6 +581,12 @@ sentence in the README becomes false, CI says so:
 | `test_cascade_gives_rasuwa_usable_lead_time` | 26 minutes is real |
 | `test_escalation_is_immediate` | damping is one-way |
 | `test_basin_graph_is_acyclic` | no zone is downstream of itself |
+| `test_aftershock_matches_published_behaviour` | the Omori-Utsu maths is right, not just plausible |
+| `test_flood_probability_decays_with_lead_time` | a 48h call is less certain than a 6h one |
+| `test_landslide_only_forecast_on_steep_terrain` | we refuse to forecast where it would be noise |
+| `test_every_language_preserves_every_placeholder` | no alert can silently lose its `{eta}` |
+| `test_review_status_is_declared_honestly` | translations do not claim to be reviewed |
+| `test_messaging_app_channel_is_gone` | the unreliable channel stayed removed |
 
 `test_langtang_stays_dry_throughout` is the one that matters most for integrity: it asserts
 that no rain ever creeps into the Langtang scenario. Without it, the whole demonstration

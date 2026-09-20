@@ -3,7 +3,7 @@ PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 PORT ?= 8000
 
-.PHONY: help setup run demo test lint scenarios hf-push clean
+.PHONY: help setup run demo test lint scenarios snapshots snapshots-live hf-push clean
 
 help:
 	@echo "Prahari — dual-channel geohazard early warning"
@@ -13,6 +13,7 @@ help:
 	@echo "  make demo       Start in guaranteed-offline replay mode  <- use on stage"
 	@echo "  make test       Run the test suite"
 	@echo "  make scenarios  Regenerate the scenario corpus"
+	@echo "  make snapshots  Refresh the offline world-hazard snapshots"
 	@echo "  make hf-push    Publish the incident corpus to the Hugging Face Hub"
 	@echo ""
 
@@ -33,6 +34,12 @@ test:
 
 scenarios:
 	$(PY) scripts/build_scenarios.py
+
+snapshots:
+	$(PY) scripts/build_snapshots.py
+
+snapshots-live:
+	$(PY) scripts/build_snapshots.py --live
 
 hf-push:
 	$(PY) scripts/push_to_hf.py
