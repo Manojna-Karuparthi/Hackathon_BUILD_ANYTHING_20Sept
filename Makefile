@@ -1,6 +1,14 @@
+# PYTHON_BIN picks the interpreter used to CREATE the venv (setup only).
+# Git Bash on Windows usually has `python`, not `python3` - prefer python3
+# when it exists, fall back to python otherwise.
+PYTHON_BIN := $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
+
 VENV := .venv
-PY   := $(VENV)/bin/python
-PIP  := $(VENV)/bin/pip
+# PY/PIP point INTO the venv once it exists. A POSIX venv (Linux/macOS/WSL)
+# lays out .venv/bin/; a venv made by a native Windows Python (even from Git
+# Bash) lays out .venv/Scripts/ instead - detect whichever is actually there.
+PY   := $(shell [ -x $(VENV)/bin/python ] && echo $(VENV)/bin/python || echo $(VENV)/Scripts/python.exe)
+PIP  := $(shell [ -x $(VENV)/bin/pip ] && echo $(VENV)/bin/pip || echo $(VENV)/Scripts/pip.exe)
 PORT ?= 8000
 
 .PHONY: help setup run demo test lint scenarios snapshots snapshots-live hf-push clean
@@ -18,7 +26,7 @@ help:
 	@echo ""
 
 setup:
-	python3 -m venv $(VENV)
+	$(PYTHON_BIN) -m venv $(VENV)
 	$(PIP) install -q --upgrade pip
 	$(PIP) install -q -r requirements.txt
 	@echo "Ready. Now run: make run"
