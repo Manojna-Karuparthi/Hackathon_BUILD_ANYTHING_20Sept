@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prahari — Multi-Hazard Early Warning</title>
+<meta name="description" content="Live multi-hazard early warning: rainfall, ground motion and global disaster feeds, scored and forecast together.">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+</head>
+<body>
+
+<!-- ══════════════════════════════ TOP BAR ══════════════════════════════ -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z" stroke-linejoin="round"/>
+        <path d="M8.5 12.5h2l1.5-3 1.5 5 1.5-2h1" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>PRAHARI</h1>
+      <p>Multi-hazard early warning</p>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="statchip" id="nat-level">
+      <span class="statchip-dot" aria-hidden="true"></span>
+      <div class="statchip-body">
+        <span class="statchip-value" id="nat-level-text">—</span>
+        <span class="statchip-sub" id="nat-clock">connecting…</span>
+      </div>
+    </div>
+
+    <label class="langpick">
+      <span class="langpick-glyph" aria-hidden="true">🌐</span>
+      <select id="language" aria-label="Alert language"></select>
+    </label>
+
+    <div class="conn" id="conn-badge"><span class="conn-dot"></span><span id="conn-text">…</span></div>
+  </div>
+</header>
+
+<!-- ══════════════════════════ ALARM BANNERS ═══════════════════════════ -->
+<section class="banners" id="banners"></section>
+
+<!-- ══════════════════════════════ HERO ROW ════════════════════════════ -->
+<section class="herorow" id="herorow"></section>
+
+<main class="grid">
+
+  <!-- ─────────────── CONTROL ─────────────── -->
+  <section class="panel panel-control">
+    <h2 class="panel-title">Control</h2>
+
+    <div class="ctl-block">
+      <label class="ctl-label" for="scenario">Data source</label>
+      <select id="scenario" class="select"></select>
+      <p class="ctl-hint" id="scenario-hint"></p>
+    </div>
+
+    <div class="ctl-block" id="playback-block">
+      <label class="ctl-label">Playback</label>
+      <div class="btnrow">
+        <button class="btn btn-icon" id="btn-restart" title="Restart">⟲</button>
+        <button class="btn btn-primary" id="btn-play">▶ Play</button>
+        <button class="btn btn-icon" id="btn-step" title="Step forward">⏭</button>
+      </div>
+      <input type="range" id="scrubber" class="scrubber" min="0" max="29" value="0" aria-label="Timeline">
+      <p class="ctl-hint"><span id="step-label">—</span></p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label">Risk engine</label>
+      <div class="toggle" role="radiogroup" aria-label="Risk engine mode">
+        <button class="toggle-opt is-on" id="eng-dual" role="radio" aria-checked="true">
+          <span class="toggle-title">Dual-channel</span>
+          <span class="toggle-sub">Rain + ground motion</span>
+        </button>
+        <button class="toggle-opt" id="eng-legacy" role="radio" aria-checked="false">
+          <span class="toggle-title">Legacy</span>
+          <span class="toggle-sub">Rainfall only</span>
+        </button>
+      </div>
+      <p class="ctl-hint">Legacy reproduces a conventional single-channel system — what was live in the Trishuli valley on 26 Aug 2026.</p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label" for="drill-zone">Alert drill</label>
+      <select id="drill-zone" class="select"></select>
+      <button class="btn btn-danger btn-wide" id="btn-drill">◉ Trigger alert pipeline</button>
+      <p class="ctl-hint">Fires siren, speech, log and every configured channel — so operators can test a siren without a disaster.</p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label">Audio</label>
+      <div class="switchrow">
+        <label class="switch"><input type="checkbox" id="opt-siren" checked> Siren</label>
+        <label class="switch"><input type="checkbox" id="opt-speech" checked> Spoken alert</label>
+      </div>
+      <button class="btn btn-wide" id="btn-test-audio">Test audio output</button>
+      <p class="ctl-hint">Speech is the relay script for village loudspeakers — built for people with no smartphone.</p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label">Feed health</label>
+      <ul class="sources" id="sources"></ul>
+    </div>
+  </section>
+
+  <!-- ─────────────── ZONES ─────────────── -->
+  <section class="panel panel-zones">
+    <div class="panel-head">
+      <h2 class="panel-title">Monitored zones</h2>
+      <span class="pill" id="pop-at-risk">—</span>
+    </div>
+    <ul class="zonelist" id="zonelist"></ul>
+  </section>
+
+  <!-- ─────────────── MAP (tabbed) ─────────────── -->
+  <section class="panel panel-map">
+    <div class="panel-head">
+      <div class="tabs" role="tablist">
+        <button class="tab is-on" id="tab-regional" role="tab" aria-selected="true">Regional risk</button>
+        <button class="tab" id="tab-world" role="tab" aria-selected="false">World hazards</button>
+      </div>
+      <span class="pill" id="map-count">—</span>
+    </div>
+
+    <div class="hazfilter" id="hazfilter" hidden></div>
+    <div id="map" role="img" aria-label="Hazard map"></div>
+    <div class="maplegend" id="maplegend"></div>
+    <p class="narrative" id="narrative">—</p>
+  </section>
+
+  <!-- ─────────────── FORECAST ─────────────── -->
+  <section class="panel panel-forecast">
+    <div class="panel-head">
+      <h2 class="panel-title">Forecast — what happens next</h2>
+      <span class="pill" id="forecast-meta">—</span>
+    </div>
+    <div class="fc-grid" id="forecasts"></div>
+    <p class="ctl-hint fc-note" id="forecast-note"></p>
+  </section>
+
+  <!-- ─────────────── CHART ─────────────── -->
+  <section class="panel panel-chart">
+    <div class="panel-head">
+      <h2 class="panel-title">Risk trend — <span id="chart-zone">—</span></h2>
+      <button class="btn btn-ghost btn-sm" id="btn-table" aria-expanded="false">Table view</button>
+    </div>
+    <div class="chart-wrap"><canvas id="chart" aria-label="Risk score over time"></canvas></div>
+    <div class="table-view" id="table-view" hidden></div>
+  </section>
+
+  <!-- ─────────────── WHY ─────────────── -->
+  <section class="panel panel-why">
+    <h2 class="panel-title">Why is <span id="why-zone">this zone</span> at this level?</h2>
+    <p class="why-text" id="why-text">Select a zone.</p>
+    <div class="fusion-note" id="fusion-note"></div>
+    <h3 class="sub-title">Score breakdown</h3>
+    <div class="contribs" id="contribs"></div>
+    <h3 class="sub-title">Closest documented analogues</h3>
+    <div class="analogues" id="analogues"></div>
+  </section>
+
+  <!-- ─────────────── LOG ─────────────── -->
+  <section class="panel panel-log">
+    <div class="panel-head">
+      <h2 class="panel-title">Alert log</h2>
+      <span class="pill" id="log-count">0</span>
+    </div>
+    <ul class="alertlog" id="alertlog"></ul>
+  </section>
+
+</main>
+
+<!-- ═══════════════════════════ ASSISTANT ══════════════════════════════ -->
+<button class="fab" id="fab-assistant" aria-label="Open the situation assistant">
+  <span aria-hidden="true">💬</span><span class="fab-text">Ask</span>
+</button>
+
+<aside class="assistant" id="assistant" hidden aria-label="Situation assistant">
+  <div class="as-head">
+    <div>
+      <h2>Situation assistant</h2>
+      <p id="as-lang-note">Answers in your language, offline.</p>
+    </div>
+    <button class="btn btn-icon" id="as-close" aria-label="Close">✕</button>
+  </div>
+  <div class="as-log" id="as-log"></div>
+  <div class="as-chips" id="as-chips"></div>
+  <form class="as-form" id="as-form">
+    <input id="as-input" type="text" placeholder="What is happening?" autocomplete="off" aria-label="Ask a question">
+    <button class="btn btn-icon" id="as-mic" type="button" title="Speak your question" aria-label="Speak your question">🎙</button>
+    <button class="btn btn-primary btn-icon" type="submit" aria-label="Send">➤</button>
+  </form>
+</aside>
+
+<!-- ═════════════════════════ SIREN OVERLAY ════════════════════════════ -->
+<div class="siren" id="siren" hidden role="alertdialog" aria-live="assertive">
+  <div class="siren-card">
+    <div class="siren-pulse" aria-hidden="true"></div>
+    <span class="siren-kicker" id="siren-level">EMERGENCY</span>
+    <h2 id="siren-head">—</h2>
+    <p id="siren-body">—</p>
+    <div class="siren-spoken" id="siren-spoken"></div>
+    <div class="siren-eta" id="siren-eta" hidden>
+      <span class="siren-eta-label">Estimated arrival</span>
+      <strong id="siren-eta-value">—</strong>
+    </div>
+    <div class="siren-channels" id="siren-channels"></div>
+    <div class="siren-actions">
+      <button class="btn" id="siren-replay">🔊 Repeat aloud</button>
+      <button class="btn btn-primary" id="siren-close">Acknowledge</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/vendor/chartjs/chart.umd.js"></script>
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

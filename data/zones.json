@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Prahari monitored zone registry. Coordinates are district/settlement centroids. Rainfall thresholds are anchored to IMD/DHM published 24h rainfall categories (heavy 64.5-115.5mm, very heavy 115.6-204.4mm, extremely heavy >=204.5mm) and scaled by a terrain factor, because steep catchments translate less rain into more runoff. See METHODOLOGY.md.",
+  "basins": [
+    {
+      "id": "trishuli",
+      "name": "Trishuli / Bhote Koshi corridor",
+      "country": "NP",
+      "head_zone": "np-langtang-head",
+      "description": "Glacier-fed headwater draining Langtang Lirung through Rasuwa to the Narayani confluence in Chitwan. Reaches are ordered head-to-mouth; distance_km and debris_velocity_ms drive downstream arrival-time estimates.",
+      "reaches": [
+        {"from": "np-langtang-head", "to": "np-rasuwa",  "distance_km": 22,  "debris_velocity_ms": 14.0, "gradient": "steep"},
+        {"from": "np-rasuwa",        "to": "np-nuwakot", "distance_km": 41,  "debris_velocity_ms": 9.0,  "gradient": "steep"},
+        {"from": "np-nuwakot",       "to": "np-dhading", "distance_km": 33,  "debris_velocity_ms": 6.5,  "gradient": "moderate"},
+        {"from": "np-dhading",       "to": "np-gorkha",  "distance_km": 38,  "debris_velocity_ms": 5.0,  "gradient": "moderate"},
+        {"from": "np-gorkha",        "to": "np-chitwan", "distance_km": 52,  "debris_velocity_ms": 3.5,  "gradient": "low"}
+      ]
+    },
+    {
+      "id": "brahmaputra-south-bank",
+      "name": "Brahmaputra south-bank tributaries",
+      "country": "IN",
+      "head_zone": "in-sivasagar",
+      "description": "Dikhow and Dhansiri tributaries joining the Brahmaputra mainstem. Cloudburst surges arrive here hours before the mainstem peak, which is the bottleneck mechanism seen in the 2026 event.",
+      "reaches": [
+        {"from": "in-sivasagar",  "to": "in-charaideo", "distance_km": 36, "debris_velocity_ms": 2.2, "gradient": "low"},
+        {"from": "in-charaideo",  "to": "in-jorhat",    "distance_km": 58, "debris_velocity_ms": 1.8, "gradient": "low"},
+        {"from": "in-jorhat",     "to": "in-golaghat",  "distance_km": 47, "debris_velocity_ms": 1.6, "gradient": "low"}
+      ]
+    }
+  ],
+  "zones": [
+    {
+      "id": "np-langtang-head",
+      "name": "Langtang Lirung headwall",
+      "admin": "Langtang NP, Rasuwa, Bagmati, Nepal",
+      "country": "NP", "lat": 28.2556, "lon": 85.5194,
+      "elevation_m": 4100, "population": 480,
+      "basin": "trishuli", "river": "Langtang Khola", "channel_position_km": 0,
+      "terrain": "high-mountain-glacial", "terrain_factor": 0.55,
+      "vulnerability": 0.70,
+      "geo_watch": true,
+      "cryosphere": {"glacier_area_km2": 41.2, "glacial_lakes": 3, "ice_thickness_class": "high"},
+      "wards": ["Kyanjin Gompa", "Langtang village"],
+      "notes": "Source zone of the 26 Aug 2026 ice-rock avalanche. No permanent hydrological station survived the event; this is the monitoring blind spot the system is built to cover."
+    },
+    {
+      "id": "np-rasuwa",
+      "name": "Rasuwa (Syaphrubesi)",
+      "admin": "Rasuwa District, Bagmati, Nepal",
+      "country": "NP", "lat": 28.1590, "lon": 85.3350,
+      "elevation_m": 1460, "population": 43300,
+      "basin": "trishuli", "river": "Bhote Koshi / Trishuli", "channel_position_km": 22,
+      "terrain": "mountain-valley", "terrain_factor": 0.65,
+      "vulnerability": 0.92,
+      "geo_watch": true,
+      "cryosphere": {"glacier_area_km2": 12.4, "glacial_lakes": 2, "ice_thickness_class": "moderate"},
+      "wards": ["Syaphrubesi", "Timure", "Dhunche"],
+      "notes": "First inhabited zone downstream of the headwall. Hydropower intake and the Rasuwagadhi border crossing sit in the flood path."
+    },
+    {
+      "id": "np-nuwakot",
+      "name": "Nuwakot (Bidur)",
+      "admin": "Nuwakot District, Bagmati, Nepal",
+      "country": "NP", "lat": 27.9167, "lon": 85.1667,
+      "elevation_m": 620, "population": 277500,
+      "basin": "trishuli", "river": "Trishuli", "channel_position_km": 63,
+      "terrain": "mid-hill-valley", "terrain_factor": 0.78,
+      "vulnerability": 0.85,
+      "geo_watch": true,
+      "wards": ["Bidur", "Trishuli Bazar", "Battar"],
+      "notes": "Dense riverside settlement and market on the Trishuli floodplain."
+    },
+    {
+      "id": "np-dhading",
+      "name": "Dhading (Dhading Besi)",
+      "admin": "Dhading District, Bagmati, Nepal",
+      "country": "NP", "lat": 27.8667, "lon": 84.9000,
+      "elevation_m": 640, "population": 325700,
+      "basin": "trishuli", "river": "Trishuli", "channel_position_km": 96,
+      "terrain": "mid-hill-valley", "terrain_factor": 0.82,
+      "vulnerability": 0.74,
+      "geo_watch": false,
+      "wards": ["Dhading Besi", "Gajuri", "Benighat"],
+      "notes": "Highway corridor along the Trishuli; Benighat sits at the Budhi Gandaki confluence."
+    },
+    {
+      "id": "np-gorkha",
+      "name": "Gorkha (Benighat confluence)",
+      "admin": "Gorkha District, Gandaki, Nepal",
+      "country": "NP", "lat": 28.0000, "lon": 84.6333,
+      "elevation_m": 1135, "population": 271100,
+      "basin": "trishuli", "river": "Budhi Gandaki / Trishuli", "channel_position_km": 134,
+      "terrain": "mid-hill-valley", "terrain_factor": 0.85,
+      "vulnerability": 0.68,
+      "geo_watch": false,
+      "wards": ["Gorkha Bazar", "Aarughat", "Palungtar"],
+      "notes": "Confluence zone; combined discharge amplifies downstream stage."
+    },
+    {
+      "id": "np-chitwan",
+      "name": "Chitwan (Bharatpur / Narayanghat)",
+      "admin": "Chitwan District, Bagmati, Nepal",
+      "country": "NP", "lat": 27.6833, "lon": 84.4333,
+      "elevation_m": 208, "population": 719900,
+      "basin": "trishuli", "river": "Narayani", "channel_position_km": 186,
+      "terrain": "terai-floodplain", "terrain_factor": 1.00,
+      "vulnerability": 0.81,
+      "geo_watch": false,
+      "wards": ["Bharatpur", "Narayanghat", "Ratnanagar", "Kalika"],
+      "notes": "Largest downstream population centre. Flat terai terrain: long warning lead time is achievable here if the upstream signal is caught at all."
+    },
+    {
+      "id": "in-sivasagar",
+      "name": "Sivasagar",
+      "admin": "Sivasagar District, Assam, India",
+      "country": "IN", "lat": 26.9833, "lon": 94.6333,
+      "elevation_m": 97, "population": 1151050,
+      "basin": "brahmaputra-south-bank", "river": "Dikhow", "channel_position_km": 0,
+      "terrain": "alluvial-plain", "terrain_factor": 1.00,
+      "vulnerability": 0.88,
+      "geo_watch": false,
+      "wards": ["Sivasagar town", "Nazira", "Amguri", "Demow"],
+      "notes": "Dikhow tributary head. Cloudburst surges here precede the Brahmaputra mainstem peak, creating the drainage bottleneck."
+    },
+    {
+      "id": "in-charaideo",
+      "name": "Charaideo (Sonari)",
+      "admin": "Charaideo District, Assam, India",
+      "country": "IN", "lat": 27.0200, "lon": 95.0200,
+      "elevation_m": 116, "population": 471420,
+      "basin": "brahmaputra-south-bank", "river": "Dikhow / Darika", "channel_position_km": 36,
+      "terrain": "alluvial-plain", "terrain_factor": 0.95,
+      "vulnerability": 0.79,
+      "geo_watch": false,
+      "wards": ["Sonari", "Mahmora", "Sapekhati"],
+      "notes": "Tea-belt district with dispersed rural settlements; alert reach is the weak link, not detection."
+    },
+    {
+      "id": "in-jorhat",
+      "name": "Jorhat",
+      "admin": "Jorhat District, Assam, India",
+      "country": "IN", "lat": 26.7500, "lon": 94.2167,
+      "elevation_m": 116, "population": 1092250,
+      "basin": "brahmaputra-south-bank", "river": "Brahmaputra mainstem", "channel_position_km": 94,
+      "terrain": "alluvial-plain", "terrain_factor": 1.00,
+      "vulnerability": 0.83,
+      "geo_watch": false,
+      "wards": ["Jorhat town", "Titabar", "Teok", "Majuli ferry ghat"],
+      "notes": "Mainstem confluence reach. Majuli island communities depend on this gauge."
+    },
+    {
+      "id": "in-golaghat",
+      "name": "Golaghat",
+      "admin": "Golaghat District, Assam, India",
+      "country": "IN", "lat": 26.5167, "lon": 93.9667,
+      "elevation_m": 95, "population": 1066890,
+      "basin": "brahmaputra-south-bank", "river": "Dhansiri", "channel_position_km": 141,
+      "terrain": "alluvial-plain", "terrain_factor": 1.00,
+      "vulnerability": 0.86,
+      "geo_watch": false,
+      "wards": ["Golaghat town", "Bokakhat", "Dergaon", "Sarupathar"],
+      "notes": "Dhansiri backflow zone bordering Kaziranga. Flat gradient means water sits for days once it arrives."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# Core runtime — everything the demo needs.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
+pydantic>=2.7
+numpy>=1.26
+
+# Tests
+pytest>=8.0
+
+# Optional. Nothing below is required to run the demo.
+#   datasets>=2.19        # read the incident corpus through the HF Datasets API
+#   huggingface-hub>=0.23 # publish the corpus with scripts/push_to_hf.py
