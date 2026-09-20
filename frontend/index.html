@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prahari — Dual-Channel Early Warning</title>
+<meta name="description" content="Dual-channel geohazard early warning: rainfall and ground motion, scored together.">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z" stroke-linejoin="round"/>
+        <path d="M8.5 12.5h2l1.5-3 1.5 5 1.5-2h1" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>PRAHARI</h1>
+      <p>Dual-channel geohazard early warning</p>
+    </div>
+  </div>
+
+  <div class="topbar-status">
+    <div class="natlevel" id="nat-level">
+      <span class="natlevel-dot" aria-hidden="true"></span>
+      <div>
+        <span class="natlevel-label" id="nat-level-text">—</span>
+        <span class="natlevel-sub" id="nat-clock">connecting…</span>
+      </div>
+    </div>
+    <div class="conn" id="conn-badge" title="WebSocket connection"><span class="conn-dot"></span><span id="conn-text">connecting</span></div>
+  </div>
+</header>
+
+<!-- The headline stat: what the legacy generation of systems misses, right now -->
+<section class="blindbar" id="blindbar" hidden>
+  <div class="blindbar-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 9v5M12 17.5v.5" stroke-linecap="round"/>
+      <path d="M10.3 3.9 2.5 18a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="blindbar-body">
+    <strong id="blind-headline">—</strong>
+    <span id="blind-detail">—</span>
+  </div>
+</section>
+
+<main class="grid">
+
+  <!-- ============ CONTROL RAIL ============ -->
+  <section class="panel panel-control" aria-labelledby="ctl-h">
+    <h2 id="ctl-h" class="panel-title">Control</h2>
+
+    <div class="ctl-block">
+      <label class="ctl-label" for="scenario">Data source</label>
+      <select id="scenario" class="select"></select>
+      <p class="ctl-hint" id="scenario-hint"></p>
+    </div>
+
+    <div class="ctl-block" id="playback-block">
+      <label class="ctl-label">Playback</label>
+      <div class="btnrow">
+        <button class="btn" id="btn-restart" title="Restart scenario">⟲</button>
+        <button class="btn btn-primary" id="btn-play">▶ Play</button>
+        <button class="btn" id="btn-step" title="Advance one frame">⏭</button>
+      </div>
+      <input type="range" id="scrubber" class="scrubber" min="0" max="29" value="0" aria-label="Scenario timeline">
+      <p class="ctl-hint"><span id="step-label">step 0 / 0</span></p>
+    </div>
+
+    <!-- The toggle that proves the thesis -->
+    <div class="ctl-block engine-block">
+      <label class="ctl-label">Risk engine</label>
+      <div class="toggle" role="radiogroup" aria-label="Risk engine mode">
+        <button class="toggle-opt is-on" id="eng-dual" role="radio" aria-checked="true">
+          <span class="toggle-title">Dual-channel</span>
+          <span class="toggle-sub">Rain + ground motion</span>
+        </button>
+        <button class="toggle-opt" id="eng-legacy" role="radio" aria-checked="false">
+          <span class="toggle-title">Legacy</span>
+          <span class="toggle-sub">Rainfall only</span>
+        </button>
+      </div>
+      <p class="ctl-hint">Legacy reproduces a conventional single-channel system — the configuration that was live in the Trishuli valley on 26 Aug 2026.</p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label" for="drill-zone">Alert drill</label>
+      <select id="drill-zone" class="select"></select>
+      <button class="btn btn-danger btn-wide" id="btn-drill">
+        <span aria-hidden="true">◉</span> Trigger alert pipeline
+      </button>
+      <p class="ctl-hint">Fires siren, speech, log and every configured channel. Operators need to test a siren without a disaster.</p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label">Audio</label>
+      <div class="switchrow">
+        <label class="switch"><input type="checkbox" id="opt-siren" checked><span></span> Siren</label>
+        <label class="switch"><input type="checkbox" id="opt-speech" checked><span></span> Spoken alert</label>
+      </div>
+      <button class="btn btn-wide" id="btn-test-audio">Test audio output</button>
+      <p class="ctl-hint">Speech is the relay text for village public-address systems — designed for people with no smartphone.</p>
+    </div>
+
+    <div class="ctl-block">
+      <label class="ctl-label">Feed health</label>
+      <ul class="sources" id="sources"></ul>
+    </div>
+  </section>
+
+  <!-- ============ ZONES ============ -->
+  <section class="panel panel-zones" aria-labelledby="zones-h">
+    <div class="panel-head">
+      <h2 id="zones-h" class="panel-title">Monitored zones</h2>
+      <span class="pop-pill" id="pop-at-risk">—</span>
+    </div>
+    <ul class="zonelist" id="zonelist"></ul>
+  </section>
+
+  <!-- ============ MAP ============ -->
+  <section class="panel panel-map" aria-labelledby="map-h">
+    <div class="panel-head">
+      <h2 id="map-h" class="panel-title">Live risk map</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div id="map" role="img" aria-label="Map of monitored zones coloured by current risk level"></div>
+    <p class="narrative" id="narrative">—</p>
+  </section>
+
+  <!-- ============ CHART ============ -->
+  <section class="panel panel-chart" aria-labelledby="chart-h">
+    <div class="panel-head">
+      <h2 id="chart-h" class="panel-title">Risk trend — <span id="chart-zone">—</span></h2>
+      <button class="btn btn-ghost btn-sm" id="btn-table" aria-expanded="false">Table view</button>
+    </div>
+    <div class="chart-wrap"><canvas id="chart" aria-label="Risk score over time"></canvas></div>
+    <div class="table-view" id="table-view" hidden></div>
+  </section>
+
+  <!-- ============ WHY ============ -->
+  <section class="panel panel-why" aria-labelledby="why-h">
+    <h2 id="why-h" class="panel-title">Why is <span id="why-zone">this zone</span> at this level?</h2>
+    <p class="why-text" id="why-text">Select a zone.</p>
+    <div class="fusion-note" id="fusion-note"></div>
+    <h3 class="sub-title">Score breakdown</h3>
+    <div class="contribs" id="contribs"></div>
+    <h3 class="sub-title">Closest documented analogues</h3>
+    <div class="analogues" id="analogues"></div>
+  </section>
+
+  <!-- ============ ALERT LOG ============ -->
+  <section class="panel panel-log" aria-labelledby="log-h">
+    <div class="panel-head">
+      <h2 id="log-h" class="panel-title">Alert log</h2>
+      <span class="count-pill" id="log-count">0</span>
+    </div>
+    <ul class="alertlog" id="alertlog"></ul>
+  </section>
+
+</main>
+
+<!-- Full-screen alert takeover -->
+<div class="siren" id="siren" hidden role="alertdialog" aria-live="assertive" aria-labelledby="siren-head">
+  <div class="siren-card">
+    <div class="siren-pulse" aria-hidden="true"></div>
+    <span class="siren-kicker" id="siren-level">EMERGENCY</span>
+    <h2 id="siren-head">—</h2>
+    <p id="siren-body">—</p>
+    <div class="siren-eta" id="siren-eta" hidden>
+      <span class="siren-eta-label">Estimated arrival</span>
+      <strong id="siren-eta-value">—</strong>
+    </div>
+    <div class="siren-channels" id="siren-channels"></div>
+    <button class="btn btn-wide" id="siren-close">Acknowledge</button>
+  </div>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/vendor/chartjs/chart.umd.js"></script>
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
